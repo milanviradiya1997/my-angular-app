@@ -6,41 +6,63 @@ metadata:
     app: {{ .Values.labels.app }}
 spec:
   replicas: {{ .Values.replicaCount }}
+
+  # 🔹 Prevent rollout hang
+  progressDeadlineSeconds: 600
+
   selector:
     matchLabels:
       app: {{ .Values.labels.app }}
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+
   template:
     metadata:
       labels:
         app: {{ .Values.labels.app }}
       annotations:
-        # These 3 annotations tell Prometheus to scrape this pod
         prometheus.io/scrape: "true"
-        prometheus.io/port:   "80"
-        prometheus.io/path:   "/stub_status"
+        prometheus.io/port: "80"
+        prometheus.io/path: "/stub_status"
+
     spec:
       containers:
       - name: angular-container
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
+
         ports:
         - containerPort: 80
+
+        # 🔹 Prevent OOM / CPU starvation
         resources:
           requests:
-            memory: {{ .Values.resources.requests.memory }}
-            cpu: {{ .Values.resources.requests.cpu }}
+            memory: {{ .Values.resources.requests.memory | default "128Mi" }}
+            cpu: {{ .Values.resources.requests.cpu | default "100m" }}
           limits:
-            memory: {{ .Values.resources.limits.memory }}
-            cpu: {{ .Values.resources.limits.cpu }}
+            memory: {{ .Values.resources.limits.memory | default "256Mi" }}
+            cpu: {{ .Values.resources.limits.cpu | default "250m" }}
+
+        # 🔹 Liveness: restart if nginx dies
         livenessProbe:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 10
-          periodSeconds: 15
+          initialDelaySeconds: 20
+          periodSeconds: 20
+          timeoutSeconds: 2
+          failureThreshold: 3
+
+        # 🔹 Readiness: allow traffic only when ready
         readinessProbe:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 5
+          initialDelaySeconds: 10
           periodSeconds: 10
+          timeoutSeconds: 2
+          failureThreshold: 3
