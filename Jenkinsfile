@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_HUB_CREDENTIALS = credentials('dockerhub-credentials')
         DOCKER_IMAGE           = "milanviradiya97/my-angular-app"
-        ANSIBLE_SERVER_IP      = "<ansible-controller-private-ip>"
+        ANSIBLE_SERVER_IP      = "172.31.26.2"
         ANSIBLE_USER           = "ec2-user"
         BUILD_TAG              = "${BUILD_NUMBER}"
     }
