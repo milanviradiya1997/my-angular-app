@@ -1,0 +1,27 @@
+# Docker image settings
+image:
+  repository: milanviradiya97/my-angular-app
+  tag: latest
+  pullPolicy: Always
+
+# Number of pod replicas
+replicaCount: 2
+
+# Kubernetes service settings
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 80
+
+# Pod resource limits
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "100m"
+  limits:
+    memory: "128Mi"
+    cpu: "200m"
+
+# App labels
+labels:
+  app: angular-app

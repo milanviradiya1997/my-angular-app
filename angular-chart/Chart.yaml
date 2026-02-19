@@ -1,0 +1,6 @@
+apiVersion: v2
+name: angular-app
+description: Angular Web Application Helm Chart for AWS EKS
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

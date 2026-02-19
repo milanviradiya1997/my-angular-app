@@ -1,0 +1,131 @@
+---
+- name: Deploy Angular App + Prometheus to AWS EKS
+  hosts: localhost
+  become: true
+  gather_facts: false
+
+  vars:
+    docker_image: "milanviradiya97/my-angular-app"
+    app_version: "{{ build_number }}"
+    cluster_name: "devops-mini-project"
+    aws_region: "ap-south-1"
+    helm_release: "angular-app"
+    helm_chart_path: "/home/ec2-user/angular-chart"
+    namespace: "default"
+    monitoring_namespace: "monitoring"
+
+  tasks:
+    # ── Connect to EKS ─────────────────────────────
+    - name: Update kubeconfig for EKS cluster
+      shell: |
+        aws eks update-kubeconfig \
+          --region {{ aws_region }} \
+          --name {{ cluster_name }}
+
+    - name: Verify EKS nodes are ready
+      shell: kubectl get nodes
+      register: nodes
+
+    - name: Show EKS nodes
+      debug:
+        msg: "{{ nodes.stdout }}"
+
+    # ── Helm Repo Setup ─────────────────────────────
+    - name: Add Prometheus Helm repo
+      shell: |
+        helm repo add prometheus-community \
+          https://prometheus-community.github.io/helm-charts
+        helm repo update
+
+    # ── Create Monitoring Namespace ─────────────────
+    - name: Create monitoring namespace (idempotent)
+      shell: |
+        kubectl create namespace {{ monitoring_namespace }} \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    # ── Install or Upgrade Prometheus ───────────────
+    - name: Check if Prometheus is already installed
+      shell: helm list -n {{ monitoring_namespace }} | grep prometheus
+      register: prometheus_check
+      ignore_errors: true
+
+    - name: Install Prometheus via Helm (first time)
+      shell: |
+        helm install prometheus \
+          prometheus-community/prometheus \
+          --namespace {{ monitoring_namespace }} \
+          --set server.service.type=LoadBalancer \
+          --set alertmanager.enabled=false \
+          --set prometheus-pushgateway.enabled=false \
+          --set server.persistentVolume.enabled=false
+      when: prometheus_check.rc != 0
+
+    - name: Upgrade Prometheus if already installed
+      shell: |
+        helm upgrade prometheus \
+          prometheus-community/prometheus \
+          --namespace {{ monitoring_namespace }} \
+          --set server.service.type=LoadBalancer \
+          --set alertmanager.enabled=false \
+          --set prometheus-pushgateway.enabled=false \
+          --set server.persistentVolume.enabled=false
+      when: prometheus_check.rc == 0
+
+    - name: Wait for Prometheus server to be ready
+      shell: kubectl rollout status deployment/prometheus-server -n {{ monitoring_namespace }}
+
+    # ── Install or Upgrade Angular App ──────────────
+    - name: Check if Angular Helm release exists
+      shell: helm list -n {{ namespace }} | grep {{ helm_release }}
+      register: angular_check
+      ignore_errors: true
+
+    - name: Install Angular App via Helm (first time)
+      shell: |
+        helm install {{ helm_release }} {{ helm_chart_path }} \
+          --namespace {{ namespace }} \
+          --set image.tag={{ app_version }}
+      when: angular_check.rc != 0
+
+    - name: Upgrade Angular App via Helm (subsequent deploys)
+      shell: |
+        helm upgrade {{ helm_release }} {{ helm_chart_path }} \
+          --namespace {{ namespace }} \
+          --set image.tag={{ app_version }}
+      when: angular_check.rc == 0
+
+    # ── Verify Deployment ───────────────────────────
+    - name: Wait for Angular rollout to complete
+      shell: |
+        kubectl rollout status \
+          deployment/{{ helm_release }}-deployment \
+          -n {{ namespace }}
+      register: rollout
+
+    - name: Show rollout status
+      debug:
+        msg: "{{ rollout.stdout }}"
+
+    - name: Get all Angular pods
+      shell: kubectl get pods -n {{ namespace }} -o wide
+      register: pods
+
+    - name: Show pods
+      debug:
+        msg: "{{ pods.stdout }}"
+
+    - name: Get Angular App LoadBalancer URL
+      shell: kubectl get svc {{ helm_release }}-service -n {{ namespace }}
+      register: app_svc
+
+    - name: Show Angular App URL
+      debug:
+        msg: "Angular App URL: {{ app_svc.stdout }}"
+
+    - name: Get Prometheus UI URL
+      shell: kubectl get svc prometheus-server -n {{ monitoring_namespace }}
+      register: prom_svc
+
+    - name: Show Prometheus URL
+      debug:
+        msg: "Prometheus UI: {{ prom_svc.stdout }}"
